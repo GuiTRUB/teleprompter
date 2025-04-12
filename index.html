@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Teleprompter Louvores</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body {
+      background-color: #111;
+      color: white;
+      font-size: 2em;
+      line-height: 1.2;
+      padding: 2rem;
+      font-family: sans-serif;
+      margin: 0;
+    }
+
+    .controls {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      background: #000;
+      padding: 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 1rem;
+      z-index: 999;
+    }
+
+    button, input[type="color"], input[type="file"] {
+      font-size: 1rem;
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 0.5rem;
+    }
+
+    .highlight { color: red; margin-top: 0.5em; margin-bottom: 0.5em; }
+    .title { color: #00ffff; font-weight: bold; }
+
+    #output {
+      white-space: pre-wrap;
+      max-width: 800px;
+      margin: 0 auto 10rem auto;
+    }
+
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div id="output"><em>Faça upload do arquivo .docx com as letras.</em></div>
+
+  <div class="controls">
+    <input type="file" id="fileInput" />
+    <button onclick="uploadLetra()">📤 Enviar letra</button>
+    <button onclick="toggleScroll()">▶️⏸️ Scroll</button>
+    <button onclick="toggleMenu()">🧩 Menu</button>
+
+    <div id="menuExtra" style="display:none;">
+      Fundo: <input type="color" id="bgColor" />
+      Texto: <input type="color" id="textColor" />
+      Títulos: <input type="color" id="titleColor" />
+      <button onclick="applyColors()">🎨 Aplicar</button>
+
+      Espaçamento:
+      <button onclick="adjustSpacing(-0.1)">➖</button>
+      <button onclick="adjustSpacing(0.1)">➕</button>
+      <span id="spacingValue">1.2</span>
+
+      Velocidade:
+      <input type="range" id="speed" min="10" max="200" value="80" />
+      <span id="speedVal">80ms</span>
+
+      <button onclick="limpar()">🧹 Limpar</button>
+    </div>
+  </div>
+
+  <script>
+    let scrollInterval;
+    let isScrolling = false;
+
+    async function uploadLetra() {
+      const file = document.getElementById("fileInput").files[0];
+      if (!file) return alert("Escolha um arquivo .docx");
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/.netlify/functions/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = await res.json();
+      if (res.ok) {
+        fetchLetra();
+      } else {
+        alert(result.message || "Erro no upload.");
+      }
+    }
+
+    async function fetchLetra() {
+      const res = await fetch("/.netlify/functions/latest");
+      const html = await res.text();
+      document.getElementById("output").innerHTML = processaHtml(html);
+    }
+
+    function processaHtml(html) {
+      return html
+        .replace(/\((.*?)\)/g, '<span class="highlight">($1)</span>')
+        .replace(/\[(.*?)\]/g, '<div class="title">[$1]</div>');
+    }
+
+    function toggleScroll() {
+      if (isScrolling) {
+        clearInterval(scrollInterval);
+        isScrolling = false;
+      } else {
+        scrollInterval = setInterval(() => window.scrollBy(0, 1), parseInt(document.getElementById("speed").value));
+        isScrolling = true;
+      }
+    }
+
+    document.getElementById("speed").addEventListener("input", (e) => {
+      document.getElementById("speedVal").textContent = `${e.target.value}ms`;
+      if (isScrolling) {
+        clearInterval(scrollInterval);
+        scrollInterval = setInterval(() => window.scrollBy(0, 1), parseInt(e.target.value));
+      }
+    });
+
+    function toggleMenu() {
+      const menu = document.getElementById("menuExtra");
+      menu.style.display = menu.style.display === "none" ? "flex" : "none";
+    }
+
+    function applyColors() {
+      document.body.style.background = document.getElementById("bgColor").value;
+      document.body.style.color = document.getElementById("textColor").value;
+      const titles = document.querySelectorAll(".title");
+      titles.forEach(t => t.style.color = document.getElementById("titleColor").value);
+    }
+
+    function adjustSpacing(delta) {
+      const out = document.getElementById("output");
+      let current = parseFloat(out.style.lineHeight || 1.2);
+      current = Math.max(1, current + delta);
+      out.style.lineHeight = current.toFixed(1);
+      document.getElementById("spacingValue").textContent = current.toFixed(1);
+    }
+
+    function limpar() {
+      document.getElementById("output").innerHTML = "<em>Faça upload do arquivo .docx com as letras.</em>";
+    }
+  </script>
+</body>
+</html>
