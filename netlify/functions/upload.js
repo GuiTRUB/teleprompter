@@ -67,6 +67,16 @@ exports.handler = async (event) => {
     readable.push(buffer);
     readable.push(null);
 
-    form.parse(readable, event.headers);
+    const rawHeaders = Object.entries(event.headers || {}).reduce((acc, [key, val]) => {
+      acc[key.toLowerCase()] = val;
+      return acc;
+    }, {});
+
+    const headers = {
+      "content-type": rawHeaders["content-type"],
+      "content-length": rawHeaders["content-length"] || buffer.length.toString(),
+    };
+
+    form.parse(readable, headers);
   });
 };
