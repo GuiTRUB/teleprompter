@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const multiparty = require("multiparty");
 const mammoth = require("mammoth");
+const stream = require("stream");
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -14,7 +15,7 @@ exports.handler = async (event) => {
 
     form.on("part", (part) => {
       if (!part.filename) {
-        part.resume(); // ignorar campos não-arquivo
+        part.resume();
         return;
       }
 
@@ -60,12 +61,12 @@ exports.handler = async (event) => {
       });
     });
 
-    // Converta o event.body em um stream legível
-    const stream = require("stream");
     const buffer = Buffer.from(event.body, event.isBase64Encoded ? "base64" : "utf8");
-    const readable = new stream.PassThrough();
-    readable.end(buffer);
+    const readable = new stream.Readable();
+    readable._read = () => {};
+    readable.push(buffer);
+    readable.push(null);
 
-    form.parse({ headers: event.headers, pipe: () => readable.pipe(form) });
+    form.parse(readable, event.headers);
   });
 };
