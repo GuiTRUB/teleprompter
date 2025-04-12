@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const multiparty = require("multiparty");
 const mammoth = require("mammoth");
 
 exports.handler = async (event) => {
@@ -7,54 +8,64 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
 
-  try {
-    const contentType = event.headers["content-type"] || event.headers["Content-Type"];
-    if (!contentType || !contentType.includes("multipart/form-data")) {
-      return {
-        statusCode: 400,
-        body: "Requisição deve ser multipart/form-data",
-      };
-    }
+  return new Promise((resolve, reject) => {
+    const form = new multiparty.Form();
+    const bufferChunks = [];
 
-    const boundary = contentType.split("boundary=")[1];
-    const bodyBuffer = Buffer.from(event.body, event.isBase64Encoded ? "base64" : "utf8");
+    form.on("part", (part) => {
+      if (!part.filename) {
+        part.resume(); // ignorar campos não-arquivo
+        return;
+      }
 
-    const parts = bodyBuffer.toString().split(boundary);
-    const docxPart = parts.find(p => p.includes("filename=") && p.includes("application/vnd.openxmlformats-officedocument.wordprocessingml.document"));
+      part.on("data", (chunk) => {
+        bufferChunks.push(chunk);
+      });
 
-    if (!docxPart) {
-      console.log("❌ Arquivo .docx não encontrado no corpo da requisição.");
-      return { statusCode: 400, body: "Arquivo .docx não encontrado." };
-    }
+      part.on("end", async () => {
+        try {
+          const docxBuffer = Buffer.concat(bufferChunks);
+          const result = await mammoth.convertToHtml({ buffer: docxBuffer });
+          const html = result.value;
 
-    const binaryStart = docxPart.indexOf("PK");
-    const docxBuffer = Buffer.from(docxPart.slice(binaryStart), "binary");
+          if (!html || html.trim() === "") {
+            return resolve({
+              statusCode: 200,
+              body: JSON.stringify({ message: "Letra vazia após conversão." }),
+            });
+          }
 
-    console.log("📥 Iniciando conversão do .docx com mammoth...");
-    const result = await mammoth.convertToHtml({ buffer: docxBuffer });
-    const html = result.value;
+          const finalPath = "/tmp/latest.html";
+          fs.writeFileSync(finalPath, html, "utf8");
 
-    if (!html || html.trim() === "") {
-      console.log("⚠️ O conteúdo HTML convertido está vazio.");
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ message: "Letra vazia após conversão do .docx." }),
-      };
-    }
+          return resolve({
+            statusCode: 200,
+            body: JSON.stringify({ message: "Letra salva com sucesso." }),
+          });
+        } catch (err) {
+          console.error("❌ Erro ao processar .docx:", err);
+          return resolve({
+            statusCode: 500,
+            body: `Erro ao processar: ${err.message}`,
+          });
+        }
+      });
+    });
 
-    const finalPath = "/tmp/latest.html";
-    fs.writeFileSync(finalPath, html, "utf8");
+    form.on("error", (err) => {
+      console.error("Erro no multiparty:", err);
+      resolve({
+        statusCode: 500,
+        body: "Erro no processamento do formulário.",
+      });
+    });
 
-    console.log("✅ Letra salva com sucesso.");
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ message: "Letra salva com sucesso." }),
-    };
-  } catch (err) {
-    console.error("❌ Erro ao processar .docx:", err);
-    return {
-      statusCode: 500,
-      body: `Erro ao processar: ${err.message}`,
-    };
-  }
+    // Converta o event.body em um stream legível
+    const stream = require("stream");
+    const buffer = Buffer.from(event.body, event.isBase64Encoded ? "base64" : "utf8");
+    const readable = new stream.PassThrough();
+    readable.end(buffer);
+
+    form.parse({ headers: event.headers, pipe: () => readable.pipe(form) });
+  });
 };
