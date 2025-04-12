@@ -67,6 +67,11 @@ exports.handler = async (event) => {
     readable.push(buffer);
     readable.push(null);
 
-    form.parse(readable, event.headers);
+    const headers = {
+      "content-type": event.headers["content-type"] || event.headers["Content-Type"],
+      "content-length": event.headers["content-length"] || event.headers["Content-Length"] || buffer.length,
+    };
+
+    form.parse(readable, headers);
   });
 };
